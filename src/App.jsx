@@ -5,38 +5,35 @@ import RecipeDetail from './components/RecipeDetail'
 import ShoppingList from './components/ShoppingList'
 import SyncSettings from './components/SyncSettings'
 import useRepas from './hooks/useRepas'
-import useGistSync from './hooks/useGistSync'
+import { useGistSync } from './hooks/useGistSync'
 import './App.css'
 
 const TABS = [
   { id: 'semaine', label: 'Semaine', emoji: '📅' },
   { id: 'courses', label: 'Courses', emoji: '🛒' },
   { id: 'historique', label: 'Historique', emoji: '📖' },
+  { id: 'reglages', label: 'Réglages', emoji: '⚙️' },
 ]
 
 export default function App() {
   const { semaine, historique, courses, rawData, setSemaine, validerSemaine, setCourses, toggleCourse, setRawData } = useRepas()
-  const gistSync = useGistSync()
+  const { fetchFromGist, pushToGist, saveCredentials, clearCredentials, hasCredentials, syncing, lastSync, syncError } = useGistSync()
   const [auth, setAuth] = useState(() => sessionStorage.getItem('auth') === '1')
   const [tab, setTab] = useState('semaine')
   const [selected, setSelected] = useState(null)
-  const [showSync, setShowSync] = useState(false)
+  const [credsStored, setCredsStored] = useState(hasCredentials)
 
   useEffect(() => {
-    if (!auth || !gistSync.hasCreds()) return
-    gistSync.fetchFromGist().then(data => { if (data) setRawData(data) })
-  }, [auth])
+    if (!auth || !hasCredentials()) return
+    fetchFromGist().then(data => { if (data) setRawData(data) })
+  }, [auth, credsStored])
 
   useEffect(() => {
-    if (!auth || !gistSync.hasCreds()) return
-    gistSync.pushToGist(rawData)
+    if (!auth || !hasCredentials()) return
+    pushToGist(rawData)
   }, [rawData])
 
   if (!auth) return <Login onSuccess={() => setAuth(true)} />
-
-  const toggleSelect = (id) => {
-    setSemaine(semaine.map(r => r.id === id ? { ...r, _selected: !r._selected } : r))
-  }
 
   const handleClearDone = () => {
     setCourses(courses.filter(c => !c.checked))
@@ -45,19 +42,16 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-900 flex flex-col max-w-md mx-auto">
       {/* Header */}
-      <header className="flex items-center justify-between px-4 pt-safe pt-4 pb-3">
-        <h1 className="text-white font-semibold text-base">Qu'est-ce qu'on mange ?</h1>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setShowSync(true)}
-            className={`w-9 h-9 rounded-xl flex items-center justify-center text-sm transition-colors ${
-              gistSync.status === 'ok' ? 'bg-green-600/20 text-green-400' :
-              gistSync.status === 'error' ? 'bg-red-600/20 text-red-400' :
-              'bg-slate-800 text-slate-400'
-            }`}
-          >
-            ☁️
-          </button>
+      <header className="px-4 pt-4 pb-3">
+        <div className="flex items-center justify-between">
+          <h1 className="text-white font-semibold text-base">Qu'est-ce qu'on mange ?</h1>
+          {syncing
+            ? <span className="text-xs text-blue-400">sync…</span>
+            : syncError
+            ? <span className="text-xs text-red-400">⚠ sync</span>
+            : lastSync
+            ? <span className="text-xs text-emerald-500">✓ sync</span>
+            : null}
         </div>
       </header>
 
@@ -78,9 +72,7 @@ export default function App() {
                   <MealCard
                     key={r.id}
                     repas={r}
-                    selected={r._selected}
                     onClick={() => setSelected(r)}
-                    onToggleSelect={toggleSelect}
                   />
                 ))}
                 <button
@@ -125,6 +117,17 @@ export default function App() {
             )}
           </div>
         )}
+
+        {tab === 'reglages' && (
+          <div className="pt-2">
+            <SyncSettings
+              hasCredentials={credsStored}
+              onSave={(pat, gistId) => { saveCredentials(pat, gistId); setCredsStored(true) }}
+              onClear={() => { clearCredentials(); setCredsStored(false) }}
+              syncing={syncing} lastSync={lastSync} syncError={syncError}
+            />
+          </div>
+        )}
       </main>
 
       {/* Bottom nav */}
@@ -145,15 +148,7 @@ export default function App() {
         </div>
       </nav>
 
-      {/* Modals */}
       {selected && <RecipeDetail repas={selected} onClose={() => setSelected(null)} />}
-      {showSync && (
-        <SyncSettings
-          syncHook={gistSync}
-          onClose={() => setShowSync(false)}
-          onImport={data => { setRawData(data); setShowSync(false) }}
-        />
-      )}
     </div>
   )
 }
